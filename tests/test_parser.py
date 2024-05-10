@@ -1,6 +1,7 @@
 import unittest
 
-from apps.reactive.reactive import parse_inputs, Expression, Entity
+from apps.reactive.reactive import parse_inputs, Expression, UnaryExpression, Entity
+from operator import not_
 
 
 class TestInputExpressionParser(unittest.TestCase):
@@ -15,6 +16,19 @@ class TestInputExpressionParser(unittest.TestCase):
                     Expression("|", Entity("sensor.b"), Entity("switch.c")),
                 )
             ),
+        )
+
+    def test_negation(self):
+        expr = parse_inputs("switch.a & !sensor.b")
+        self.assertEqual(
+            repr(expr),
+            repr(
+                Expression(
+                    "&",
+                    Entity("switch.a"),
+                    UnaryExpression(not_, Entity("sensor.b")),
+                )
+            )
         )
 
     def test_whitespace(self):
@@ -44,14 +58,14 @@ class TestInputExpressionParser(unittest.TestCase):
                 Expression(
                     "&",
                     Entity("switch.a", value="off"),
-                    Entity("cover", invert=True, value="closed"),
+                    UnaryExpression(not_, Entity("cover", value="closed")),
                 )
             ),
         )
 
     def test_parens(self):
         expr = parse_inputs(
-            "switch.a & (sensor.b | switch.c & sensor.c) & (sensor.d | sensor.e)"
+            "switch.a & (sensor.b | switch.c & sensor.c) & (sensor.d | sensor.e) & !(sensor.f & sensor.g)"
         )
         self.assertEqual(
             repr(expr),
@@ -64,10 +78,35 @@ class TestInputExpressionParser(unittest.TestCase):
                         Expression(
                             "|",
                             Entity("sensor.b"),
-                            Expression("&", Entity("switch.c"), Entity("sensor.c")),
+                            Expression("&", Entity("switch.c"),
+                                       Entity("sensor.c")),
                         ),
-                        Expression("|", Entity("sensor.d"), Entity("sensor.e")),
-                    ),
+                        Expression(
+                            '&',
+                            Expression(
+                                "|",
+                                Entity("sensor.d"),
+                                Entity("sensor.e")
+                            ),
+                            UnaryExpression(
+                                not_,
+                                Expression(
+                                    '&',
+                                    Entity('sensor.f'),
+                                    Entity('sensor.g')
+                                )
+                            )
+                        )
+                    )
                 )
             ),
+        )
+
+    def test_negated_parens(self):
+        expr = parse_inputs(
+            "!(sensor.b)"
+        )
+        self.assertEqual(
+            repr(expr),
+            repr(UnaryExpression(not_, Entity('sensor.b')))
         )

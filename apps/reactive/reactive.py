@@ -8,7 +8,8 @@ class ExpressionError(Exception):
     pass
 
 
-OPERATORS = ("&", "|")
+BINARY_OPERATORS = ("&", "|")
+UNARY_OPERATORS = ('!',)
 
 
 class Expression:
@@ -61,25 +62,18 @@ class UnaryExpression:
 
 
 class Entity:
-    def __init__(self, name, invert=False, value=None):
+    def __init__(self, name, value=None):
         self.name = name
-        self.invert = invert
         self.value = value
 
     def __repr__(self):
-        r = self.name
-        if self.invert:
-            r = '!' + r
-        if self.value:
-            r = f"{r}={self.value!r}"
-        return r
+        return f"{self.name}={self.value!r}" if self.value else self.name
 
     def entities(self):
         return set((self.name,))
 
     def evaluate(self, states):
-        s = states.get(self.name) == (self.value or 'on')
-        return s ^ self.invert
+        return states.get(self.name) == (self.value or 'on')
 
     def replace_aliases(self, aliases):
         try:
@@ -87,29 +81,27 @@ class Entity:
         except KeyError:
             return self
 
-        if isinstance(alias, Entity):
-            return Entity(alias.name, self.invert ^ alias.invert, self.value or alias.value)
+        if self.value:
+            if isinstance(alias, Entity):
+                return Entity(alias.name, self.value)
 
-        else:
-            if self.value:
-                raise ExpressionError(
-                    "Cannot expect value for expression alias")
-            if self.invert:
-                return UnaryExpression(operator.not_, alias)
-            return alias
+            raise ExpressionError(
+                "Value check can only be overridden for entity aliases")
+
+        return alias
 
 
 def parse_inputs(inputs, aliases=None):
     tokens = list(
         filter(lambda t: t != "", (t.strip()
-               for t in re.split("([&|()])", inputs)))
+               for t in re.split("([&|()!])", inputs)))
     )
 
     expr, remainder = parse_expression(tokens)
     if remainder:
         raise ExpressionError(f"Unparsed tokens: {remainder}")
 
-    if aliases is not None:
+    if aliases:
         expr = expr.replace_aliases(aliases)
 
     return expr
@@ -127,27 +119,31 @@ def parse_parenthesized_expression(tokens):
 
     if len(remainder) > 1:
         next = remainder[1]
-        if next in OPERATORS:
+        if next in BINARY_OPERATORS:
             return parse_binary_expression(next, expr, remainder[2:])
+        elif next in UNARY_OPERATORS:
+            return parse_unary_expression(next, expr, remainder[2:])
         else:
             raise ExpressionError(f"Expected operator, got {remainder[1:]}")
 
     return expr, []
 
 
+def parse_unary_expression(op, tokens):
+    assert (op == '!')  # the only unary op supported ATM
+
+    expr, remainder = parse_expression(tokens)
+    return UnaryExpression(operator.not_, expr), remainder
+
+
 def parse_entity(token):
-    invert = False
     name = token
     value = None
-
-    if token[0] == "!":
-        invert = True
-        name = token[1:]
 
     if "=" in name:
         name, value = name.split("=", 1)
 
-    return Entity(name, invert, value)
+    return Entity(name, value)
 
 
 def parse_expression(tokens):
@@ -162,13 +158,16 @@ def parse_expression(tokens):
     elif next == ")":
         raise ExpressionError("Unexpected ')'")
 
-    elif next in OPERATORS:
+    elif next in UNARY_OPERATORS:
+        return parse_unary_expression(next, tokens[1:])
+
+    elif next in BINARY_OPERATORS:
         raise ExpressionError("Expected entity, not operator")
 
     entity = parse_entity(next)
     tokens = tokens[1:]
     if tokens:
-        if tokens[0] in OPERATORS:
+        if tokens[0] in BINARY_OPERATORS:
             return parse_binary_expression(tokens[0], entity, tokens[1:])
         elif tokens[0] == ")":
             return entity, tokens
@@ -218,8 +217,10 @@ class OutputRule:
 
 class Reactive(hassapi.Hass):
     def initialize(self):
-        aliases = {name: parse_inputs(
-            expr) for name, expr in self.args.get('aliases', {}).items()}
+        aliases = {
+            name: parse_inputs(expr)
+            for name, expr in self.args.get('aliases', {}).items()
+        }
 
         rules = [
             OutputRule(out, inputs, aliases) for out, inputs in self.args["outputs"].items()
