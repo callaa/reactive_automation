@@ -17,6 +17,8 @@ class Expression:
             self.operator = operator.and_
         elif op == "|":
             self.operator = operator.or_
+        elif hasattr(op, '__call__'):
+            self.operator = op
         else:
             raise ExpressionError(f"Unknown operator {op}")
 
@@ -32,34 +34,83 @@ class Expression:
     def evaluate(self, states):
         return self.operator(self.left.evaluate(states), self.right.evaluate(states))
 
+    def replace_aliases(self, aliases):
+        return Expression(
+            self.operator,
+            self.left.replace_aliases(aliases),
+            self.right.replace_aliases(aliases)
+        )
+
+
+class UnaryExpression:
+    def __init__(self, op, expr):
+        self.operator = op
+        self.expr = expr
+
+    def __repr__(self):
+        return f"{self.operator.__name__}({self.expr})"
+
+    def entities(self):
+        return self.expr.entities()
+
+    def evaluate(self, states):
+        return self.operator(self.expr.evaluate(states))
+
+    def replace_aliases(self, aliases):
+        return UnaryExpression(self.operator, self.expr.replace_aliases(aliases))
+
 
 class Entity:
-    def __init__(self, name, invert=False, value="on"):
+    def __init__(self, name, invert=False, value=None):
         self.name = name
         self.invert = invert
         self.value = value
 
     def __repr__(self):
+        r = self.name
         if self.invert:
-            return f"!{self.name}={self.value!r}"
-        return f"{self.name}={self.value!r}"
+            r = '!' + r
+        if self.value:
+            r = f"{r}={self.value!r}"
+        return r
 
     def entities(self):
         return set((self.name,))
 
     def evaluate(self, states):
-        s = states.get(self.name) == self.value
+        s = states.get(self.name) == (self.value or 'on')
         return s ^ self.invert
 
+    def replace_aliases(self, aliases):
+        try:
+            alias = aliases[self.name]
+        except KeyError:
+            return self
 
-def parse_inputs(inputs):
+        if isinstance(alias, Entity):
+            return Entity(alias.name, self.invert ^ alias.invert, self.value or alias.value)
+
+        else:
+            if self.value:
+                raise ExpressionError(
+                    "Cannot expect value for expression alias")
+            if self.invert:
+                return UnaryExpression(operator.not_, alias)
+            return alias
+
+
+def parse_inputs(inputs, aliases=None):
     tokens = list(
-        filter(lambda t: t != "", (t.strip() for t in re.split("([&|()])", inputs)))
+        filter(lambda t: t != "", (t.strip()
+               for t in re.split("([&|()])", inputs)))
     )
 
     expr, remainder = parse_expression(tokens)
     if remainder:
         raise ExpressionError(f"Unparsed tokens: {remainder}")
+
+    if aliases is not None:
+        expr = expr.replace_aliases(aliases)
 
     return expr
 
@@ -87,7 +138,7 @@ def parse_parenthesized_expression(tokens):
 def parse_entity(token):
     invert = False
     name = token
-    value = "on"
+    value = None
 
     if token[0] == "!":
         invert = True
@@ -141,9 +192,9 @@ class States:
 
 
 class OutputRule:
-    def __init__(self, output_entity, input_states):
+    def __init__(self, output_entity, input_states, aliases={}):
         self.output_entity = output_entity
-        self.input_states = [parse_inputs(i) for i in input_states]
+        self.input_states = [parse_inputs(i, aliases) for i in input_states]
         self.last_state = None
 
     def __repr__(self):
@@ -167,8 +218,11 @@ class OutputRule:
 
 class Reactive(hassapi.Hass):
     def initialize(self):
+        aliases = {name: parse_inputs(
+            expr) for name, expr in self.args.get('aliases', {}).items()}
+
         rules = [
-            OutputRule(out, inputs) for out, inputs in self.args["outputs"].items()
+            OutputRule(out, inputs, aliases) for out, inputs in self.args["outputs"].items()
         ]
 
         # self.output_rules is an index that maps each output entity to its corresponding
@@ -191,7 +245,8 @@ class Reactive(hassapi.Hass):
             for i in inputs:
                 self.rules.setdefault(i, []).append(rule)
 
-            self.log(f"{rule.output_entity} affected by {len(inputs)} input entities")
+            self.log(f"{rule.output_entity} affected by {
+                     len(inputs)} input entities")
 
         self.log(f"Listening to {len(all_inputs)} inputs total.")
         self.listen_state(self.input_changed, list(all_inputs))
@@ -228,7 +283,8 @@ class Reactive(hassapi.Hass):
 
         if changes > 0:
             self.log(
-                f"{entity} ({old} -> {new}): {len(affected_rules)} rules triggered, {changes} output states changed."
+                f"{entity} ({old} -> {new}): {len(affected_rules)
+                                              } rules triggered, {changes} output states changed."
             )
 
     def output_becomes_available(self, entity, attribute, old, new, kwargs):

@@ -12,8 +12,27 @@ With reactive.py, creating these rules is as simple as putting this into your `a
       class: Reactive
       outputs:
         light.stairs:
-          - (binary_sensor.porch_occupancy | binary_sensor.stairs_occupancy) & (binary_sensor.dark_outside | cover.porch=closed) & binary_sensor.dark_outside & !switch.nightmode
+          - (binary_sensor.porch_occupancy | binary_sensor.stairs_occupancy) & (binary_sensor.dark_outside | cover.porch=closed) & !switch.nightmode
           - binary_sensor.stairs_lightswitch
 
-
 Reactive.py monitors all the named input entities for changes and turns the output either on or off when the rule evalutes to a new state.
+It also monitors the output entities availability status and resets the state when an unavailable device becomes available again.
+
+## Expression aliases
+
+The same entities or sub-expressions are often used multiple times in multiple rules so, as a convenience, aliases can be added for them.
+For example:
+
+    reactive:
+      module: reactive
+      class: Reactive
+      aliases:
+        is_dark: binary_sensor.dark_outside | cover.porch=closed
+        porch_occ: binary_sensor.porch_occupancy
+      outputs:
+        light.stairs:
+          - (porch_occ | binary_sensor.stairs_occupancy) & is_dark & !switch.nightmode
+          - binary_sensor.stairs_lightswitch
+        light.porch:
+          - porch_occ & is_dark
+          - binary_sensor.porch_lightswitch

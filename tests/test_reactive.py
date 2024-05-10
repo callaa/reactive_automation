@@ -21,13 +21,15 @@ class TestReactiveApp(unittest.TestCase):
         app.log("### Turning on the light switch turns the light on")
         app.turn_on("binary_sensor.lightswitch")
         self.assertEqual(
-            app.mock_states, {"binary_sensor.lightswitch": "on", "light.test": "on"}
+            app.mock_states, {
+                "binary_sensor.lightswitch": "on", "light.test": "on"}
         )
 
         app.log("### Light switch off")
         app.turn_off("binary_sensor.lightswitch")
         self.assertEqual(
-            app.mock_states, {"binary_sensor.lightswitch": "off", "light.test": "off"}
+            app.mock_states, {
+                "binary_sensor.lightswitch": "off", "light.test": "off"}
         )
 
         app.log("### Motion detected (but not dark yet)")
@@ -54,7 +56,8 @@ class TestReactiveApp(unittest.TestCase):
         )
 
     def test_output_change(self):
-        app = Reactive({"outputs": {"light.test": ["binary_sensor.lightswitch"]}})
+        app = Reactive(
+            {"outputs": {"light.test": ["binary_sensor.lightswitch"]}})
 
         self.assertEqual(app.mock_states, {"light.test": "off"})
 
@@ -69,7 +72,8 @@ class TestReactiveApp(unittest.TestCase):
         )
         app.turn_off("binary_sensor.lightswitch")
         self.assertEqual(
-            app.mock_states, {"binary_sensor.lightswitch": "off", "light.test": "on"}
+            app.mock_states, {
+                "binary_sensor.lightswitch": "off", "light.test": "on"}
         )
 
         app.log(
@@ -77,11 +81,13 @@ class TestReactiveApp(unittest.TestCase):
         )
         app.mock_run_hourly()
         self.assertEqual(
-            app.mock_states, {"binary_sensor.lightswitch": "off", "light.test": "off"}
+            app.mock_states, {
+                "binary_sensor.lightswitch": "off", "light.test": "off"}
         )
 
     def test_output_becomes_available(self):
-        app = Reactive({"outputs": {"light.test": ["binary_sensor.lightswitch"]}})
+        app = Reactive(
+            {"outputs": {"light.test": ["binary_sensor.lightswitch"]}})
 
         # Switch is turned on but the smart light is unavailable (unplugged)
         app.mock_set_state("binary_sensor.lightswitch", "on")
@@ -98,7 +104,8 @@ class TestReactiveApp(unittest.TestCase):
         app.log("### Smart light is powered on. State should be synced now")
         app.mock_set_state("light.test", "off")
         self.assertEqual(
-            app.mock_states, {"binary_sensor.lightswitch": "on", "light.test": "on"}
+            app.mock_states, {
+                "binary_sensor.lightswitch": "on", "light.test": "on"}
         )
 
     def test_parenthesis(self):
@@ -117,7 +124,8 @@ class TestReactiveApp(unittest.TestCase):
         app.log("### Motion detected (but not dark yet and curtains not closed)")
         app.turn_on("binary_sensor.motion")
         self.assertEqual(
-            app.mock_states, {"binary_sensor.motion": "on", "light.test": "off"}
+            app.mock_states, {
+                "binary_sensor.motion": "on", "light.test": "off"}
         )
 
         app.log("### Motion detected and it's dark")
@@ -262,4 +270,103 @@ class TestReactiveApp(unittest.TestCase):
                 "light.test1": "off",
                 "light.test2": "on",
             },
+        )
+
+    def test_aliases(self):
+        app = Reactive(
+            {
+                "aliases": {
+                    "switch": "binary_sensor.switch_with_long_id",
+                    "is_dark": "binary_sensor.dark | input_boolean.bedtime"
+                },
+                "outputs": {
+                    "light.test": [
+                        "binary_sensor.motion & is_dark",
+                        "switch",
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(app.mock_states, {"light.test": "off"})
+
+        app.log("### Turning on the light switch turns the light on")
+        app.turn_on("binary_sensor.switch_with_long_id")
+        self.assertEqual(
+            app.mock_states, {
+                "binary_sensor.switch_with_long_id": "on", "light.test": "on"}
+        )
+
+        app.log("### Light switch off")
+        app.turn_off("binary_sensor.switch_with_long_id")
+        self.assertEqual(
+            app.mock_states, {
+                "binary_sensor.switch_with_long_id": "off", "light.test": "off"}
+        )
+
+        app.log("### Motion detected (but not dark yet)")
+        app.turn_on("binary_sensor.motion")
+        self.assertEqual(
+            app.mock_states,
+            {
+                "binary_sensor.switch_with_long_id": "off",
+                "binary_sensor.motion": "on",
+                "light.test": "off",
+            },
+        )
+
+        app.log("### Motion detected (and it's bedtime)")
+        app.turn_on("input_boolean.bedtime")
+        self.assertEqual(
+            app.mock_states,
+            {
+                "binary_sensor.switch_with_long_id": "off",
+                "binary_sensor.motion": "on",
+                "input_boolean.bedtime": "on",
+                "light.test": "on",
+            },
+        )
+
+    def test_alias_entity_negation(self):
+        app = Reactive(
+            {
+                "aliases": {
+                    "entity": "binary_sensor.switch",
+                },
+                "outputs": {
+                    "light.test": [
+                        "!entity",
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(app.mock_states, {"light.test": "on"})
+
+        app.turn_on("binary_sensor.switch")
+        self.assertEqual(
+            app.mock_states, {
+                "binary_sensor.switch": "on", "light.test": "off"}
+        )
+
+    def test_alias_expression_negation(self):
+        app = Reactive(
+            {
+                "aliases": {
+                    "expr": "binary_sensor.switch | binary_sensor.dark",
+                },
+                "outputs": {
+                    "light.test": [
+                        "!expr",
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(app.mock_states, {"light.test": "on"})
+
+        app.turn_on("binary_sensor.switch")
+        self.assertEqual(
+            app.mock_states, {
+                "binary_sensor.switch": "on", "light.test": "off"}
         )
