@@ -246,8 +246,8 @@ class Reactive(hassapi.Hass):
             for i in inputs:
                 self.rules.setdefault(i, []).append(rule)
 
-            self.log(f"{rule.output_entity} affected by {
-                     len(inputs)} input entities")
+            self.log(f"{rule.output_entity} affected by {len(inputs)} input entities"
+                     )
 
         self.log(f"Listening to {len(all_inputs)} inputs total.")
         self.listen_state(self.input_changed, list(all_inputs))
@@ -283,10 +283,8 @@ class Reactive(hassapi.Hass):
                 changes += 1
 
         if changes > 0:
-            self.log(
-                f"{entity} ({old} -> {new}): {len(affected_rules)
-                                              } rules triggered, {changes} output states changed."
-            )
+            self.log(f"{entity} ({old} -> {new}): {len(affected_rules)} rules triggered, {changes} output states changed."
+                     )
 
     def output_becomes_available(self, entity, attribute, old, new, kwargs):
         self.log(f"output {entity} became available again")
