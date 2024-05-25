@@ -117,23 +117,28 @@ def parse_parenthesized_expression(tokens):
     if not remainder or remainder[0] != ")":
         raise ExpressionError("Expected ')'")
 
-    if len(remainder) > 1:
-        next = remainder[1]
-        if next in BINARY_OPERATORS:
-            return parse_binary_expression(next, expr, remainder[2:])
-        elif next in UNARY_OPERATORS:
-            return parse_unary_expression(next, expr, remainder[2:])
-        else:
-            raise ExpressionError(f"Expected operator, got {remainder[1:]}")
-
-    return expr, []
+    return expr, remainder[1:]
 
 
 def parse_unary_expression(op, tokens):
     assert (op == '!')  # the only unary op supported ATM
 
-    expr, remainder = parse_expression(tokens)
-    return UnaryExpression(operator.not_, expr), remainder
+    next = tokens[0]
+
+    if next == "(":
+        operand, remainder = parse_parenthesized_expression(tokens[1:])
+
+    elif next == ")":
+        raise ExpressionError("Unexpected ')'")
+
+    elif next in BINARY_OPERATORS or next in UNARY_OPERATORS:
+        raise ExpressionError("Expected entity, not operator")
+
+    else:
+        operand = parse_entity(next)
+        remainder = tokens[1:]
+
+    return UnaryExpression(operator.not_, operand), remainder
 
 
 def parse_entity(token):
@@ -153,29 +158,30 @@ def parse_expression(tokens):
     next = tokens[0]
 
     if next == "(":
-        return parse_parenthesized_expression(tokens[1:])
+        entity, tokens = parse_parenthesized_expression(tokens[1:])
 
     elif next == ")":
         raise ExpressionError("Unexpected ')'")
 
     elif next in UNARY_OPERATORS:
-        return parse_unary_expression(next, tokens[1:])
+        entity, tokens = parse_unary_expression(next, tokens[1:])
 
     elif next in BINARY_OPERATORS:
         raise ExpressionError("Expected entity, not operator")
 
-    entity = parse_entity(next)
-    tokens = tokens[1:]
+    else:
+        entity = parse_entity(next)
+        tokens = tokens[1:]
+
     if tokens:
         if tokens[0] in BINARY_OPERATORS:
-            return parse_binary_expression(tokens[0], entity, tokens[1:])
-        elif tokens[0] == ")":
-            return entity, tokens
-        else:
+            entity, tokens = parse_binary_expression(
+                tokens[0], entity, tokens[1:])
+
+        elif tokens[0] != ")":
             raise ExpressionError(f"Expected operator, got {tokens}")
 
-    else:
-        return entity, []
+    return entity, tokens
 
 
 class States:
